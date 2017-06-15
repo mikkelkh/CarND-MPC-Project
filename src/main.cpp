@@ -98,6 +98,29 @@ int main() {
           * Both are in between [-1, 1].
           *
           */
+          // Transform from map coordinates to vehicle coordinates
+//          vector<double> ptsx_car,ptsy_car;
+          Eigen::VectorXd ptsx_car(ptsx.size());
+          Eigen::VectorXd ptsy_car(ptsy.size());
+          for (size_t i=0;i<ptsx.size();i++)
+          {
+        	  double x = ptsx[i] - px;
+        	  double y = ptsy[i] - py;
+        	  ptsx_car[i] = x * cos(-psi) - y * sin(-psi);
+        	  ptsy_car[i] = x * sin(-psi) + y * cos(-psi);
+          }
+
+          // Fit polynomial
+          auto coeffs = polyfit(ptsx_car, ptsy_car, 3);
+
+          // Calculate cte and epsi
+          double cte = polyeval(coeffs, x) - y;
+          double epsi = psi - atan(coeffs[1]);
+
+          Eigen::VectorXd state(6);
+          state << x, y, psi, v, cte, epsi;
+
+
           double steer_value;
           double throttle_value;
 
