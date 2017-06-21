@@ -3,6 +3,110 @@ Self-Driving Car Engineer Nanodegree Program
 
 ---
 
+![](screenshot.png)
+
+## Description
+In this project, a model predictive controller (MPC) is used to automatically steer a car around a track in a car simulator.
+The simulator provides the current position, velocity, and heading direction of the car, as well as waypoints along a reference trajectory, the car should follow.
+Based on this, the MPC estimates actuator values (steering angle and acceleration) that respect the defined vehicle model and minimize the error between the reference trajectory and the expected trajectory.
+
+## The Model
+The vehicle model used in the project is a kinematic bicycle model.
+Contrary to a dynamic model, a kinematic model does not take tire forces, gravity, and mass into consideration.
+This makes the model less accurate, but considerably more tractable.
+
+The bicycle model has 4 states, `x,y,ψ` and `v` that describe position, heading direction, and velocity of the vehicle.
+We extend these with the cross-track error `cte` and the orientation error `eψ`, which results in a total of 6 states described by the following update equations.
+```
+x_{​t+1} = x_​t​+v_t∗cos(ψ​t)∗dt
+y_{​t+1}​​ = y_​t+v​_t∗sin(ψt)∗dt
+ψ_{​t+1}​​ = ψ_​t​+​v_​t/L_f∗δ_t∗dt
+v_{​t+1}​​ = v_​t​+a_​t∗dt
+cte_{t+1} = f(x_t)-y_t+v_t∗sin(eψ_t)∗dt
+eψ_{t+1} = ψ_t-atan(f'(x_t))+v_t/L_f∗δ_t∗dt
+```
+Here, `dt` is the duration between two timesteps, `L_f` is the distance between the front of the vehicle and its center of gravity, and `f` is a polynomial describing the reference trajectory of the vehicle (see Polynomial Fitting below for more details). 
+`δ` and `a` are the two actuators describing respectively the steering angle and the acceleration of the vehicle.
+These are the two desired parameters that we solve for, when minimizing the error terms `cte` and `eψ`. They determine how well and how fast the vehicle traverses the track.
+
+## Timestep Length and Elapsed Duration (N & dt)
+The timestep length `N` and the duration between timesteps `dt` have been chosen empirically, by starting out with the values `N=25` and `dt=0.05` provided by the solution to the "Mind The Line" problem.
+
+These values worked pretty well with a reference/desired velocity of `v_ref=25`.
+However, when increasing the reference velocity, the length of the reference trajectory (`v∗N∗dt`) becomes much larger than necessary to predict the next actuations.
+In itself, this should not a problem, but as the velocity is increased, we also need faster computation time, to make the model more reactive.
+And computation time depends directly on the timestep length, as `N` is also the number of variables being optimized.
+I therefore came up with a simple equation to link the timestep length `N` to the reference velocity `v_ref`:
+```
+N = 25*25/v_ref = 625/v_ref
+```
+This equation makes `N` small for high velocities, ensuring fast computation time, while ensuring that the prediction horizon is the same length, regardless of the reference velocity.
+As I managed to make the vehicle run with `v_ref=60`, I ended up with `N=10`.
+
+`dt` is the duration between timesteps. Small values of `dt` provide more accurate and more continuous controls, whereas large values can lead to discretization errors.
+However, as the length of the reference trajectory (prediction horizon) is proportional to `dt`, a compromise has to be found.
+In my case, the initial value of `dt=0.05` was a reasonable compromise.
+
+## Polynomial Fitting and MPC Preprocessing
+As described above, the simulator provides a number of waypoints along a reference trajectory, the vehicle should follow.
+These waypoints, however, are specified in global map coordinates.
+As we need them in vehicle coordinates, we first transform all waypoints into the vehicle coordinate system.
+Waypoint `i` with global map coordinates `x_i,y_i` is transformed into vehicle coordinates `x_i',y_i'` by first performing a translation and then a rotation:
+```
+x = x_i-px
+y = y_i-py
+x_i' = x∗cos(ψ) + y∗sin(ψ);
+y_i' = -x∗sin(ψ) + y∗cos(ψ);
+```
+where `px,py` is the global map position of the vehicle, and `ψ` is the current heading direction in the global map frame of the vehicle.
+
+Once all waypoints are in the vehicle coordinate frame, we fit a 3rd order polynomial, describing the reference/desired trajectory of the vehicle:
+```
+f(x) = a_0+a_1∗x+a_2∗x^2+a_3∗x^3
+```
+
+With this defined, we can provide the initial/current state to the MPC:
+```
+x_0 = 0
+y_0 = 0
+ψ_0 = 0
+cte_0 = f(x_0)-y_0 = a_0
+eψ_0 = ψ_0-atan(f'(x_0)) = 0-atan(a_1+a_2*x_0+a_3*x_0^2) = -atan(a_1)
+```
+where `x_0,y_0,ψ_0` are all zero, since they are specified in the local vehicle coordinate frame.
+
+## Model Predictive Control with Latency
+The MPC is implemented exactly as the provided solution from Udacity to the "Mind The Line" problem.
+
+However, to smooth the steering angle actuator, I found that multiplying the term describing the temporal differences between steering angles with a factor of 1000, provided a much better solution.
+The overall cost function is therefore:
+```
+Cost  = sum_t[ cte_i^2 
+              + eψ_i^2 
+              + (v_i-v_ref)^2 
+              + δ_i^2 
+              + a_i^2 
+              + 1000∗(δ_{i+1}-δ_i) 
+              + a_{i+1}-a_i ]
+```
+
+The simulator has a 100 ms latency between actuation commands.
+This means that actuations are effectively carried out 100 ms after we request them.
+
+In the implementation, I have handled this by not returning the first actuator values (at time 0), but instead return a later index corresponding to the latency.
+As the solution to the MPC optimization problem is contained in a variable `solution.x`, the actuator values (steering and acceleration) that respect the latency of 100 ms are returned with this command:
+
+```
+return {solution.x[delta_start+int(0.1/dt)],solution.x[a_start+int(0.1/dt)]}
+```
+
+First: N=25, dt=0.05 (as example)
+Then: 100*delta_diff
+Then: v_ref=50, which made the look-ahead much longer. Therefore, N was halved --> N=25*25/v_ref
+Then: 1000*delta_diff
+Then: v_ref=60
+---
+
 ## Dependencies
 
 * cmake >= 3.5

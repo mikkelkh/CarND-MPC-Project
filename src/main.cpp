@@ -9,6 +9,8 @@
 #include "MPC.h"
 #include "json.hpp"
 
+#define steer_value_normalizer deg2rad(25);
+
 // for convenience
 using json = nlohmann::json;
 
@@ -99,30 +101,30 @@ int main() {
           *
           */
           // Transform from map coordinates to vehicle coordinates
-//          vector<double> ptsx_car,ptsy_car;
           Eigen::VectorXd ptsx_car(ptsx.size());
           Eigen::VectorXd ptsy_car(ptsy.size());
           for (size_t i=0;i<ptsx.size();i++)
           {
         	  double x = ptsx[i] - px;
         	  double y = ptsy[i] - py;
-        	  ptsx_car[i] = x * cos(-psi) - y * sin(-psi);
-        	  ptsy_car[i] = x * sin(-psi) + y * cos(-psi);
+        	  ptsx_car[i] = x * cos(psi) + y * sin(psi);
+        	  ptsy_car[i] = -x * sin(psi) + y * cos(psi);
           }
 
           // Fit polynomial
           auto coeffs = polyfit(ptsx_car, ptsy_car, 3);
 
           // Calculate cte and epsi
-          double cte = polyeval(coeffs, x) - y;
-          double epsi = psi - atan(coeffs[1]);
-
+          double cte = polyeval(coeffs,0);
+          double epsi = -atan(coeffs[1]);
           Eigen::VectorXd state(6);
-          state << x, y, psi, v, cte, epsi;
+          state << 0,0,0,v,cte,epsi;
+
+          vector<double> actuations = mpc.Solve(state, coeffs);
 
 
-          double steer_value;
-          double throttle_value;
+          double steer_value = -actuations[0]/steer_value_normalizer;
+          double throttle_value = actuations[1];
 
           json msgJson;
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
@@ -131,8 +133,10 @@ int main() {
           msgJson["throttle"] = throttle_value;
 
           //Display the MPC predicted trajectory 
-          vector<double> mpc_x_vals;
-          vector<double> mpc_y_vals;
+          trajectory t = mpc.GetTrajectory();
+
+          vector<double> mpc_x_vals = t.x;
+          vector<double> mpc_y_vals = t.y;
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Green line
@@ -141,8 +145,8 @@ int main() {
           msgJson["mpc_y"] = mpc_y_vals;
 
           //Display the waypoints/reference line
-          vector<double> next_x_vals;
-          vector<double> next_y_vals;
+          vector<double> next_x_vals(ptsx_car.data(), ptsx_car.data() + ptsx_car.rows() * ptsx_car.cols());
+          vector<double> next_y_vals(ptsy_car.data(), ptsy_car.data() + ptsy_car.rows() * ptsy_car.cols());
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line

@@ -6,6 +6,11 @@
 
 using namespace std;
 
+struct trajectory {
+	vector<double> x;
+	vector<double> y;
+};
+
 class MPC {
  public:
   MPC();
@@ -15,6 +20,8 @@ class MPC {
   // Solve the model given an initial state and polynomial coefficients.
   // Return the first actuatotions.
   vector<double> Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs);
+
+  trajectory GetTrajectory();
 };
 
 #endif /* MPC_H */
